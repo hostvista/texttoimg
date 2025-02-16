@@ -24,8 +24,6 @@ DATABASE = "indie_ai.db"
 def init_db():
     conn = sqlite3.connect(DATABASE)
     cursor = conn.cursor()
-    
-    # Create users table
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS users (
             user_id INTEGER PRIMARY KEY,
@@ -34,8 +32,6 @@ def init_db():
             images_generated INTEGER DEFAULT 0
         )
     """)
-    
-    # Create coupons table
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS coupons (
             code TEXT PRIMARY KEY,
@@ -43,11 +39,9 @@ def init_db():
             used INTEGER DEFAULT 0
         )
     """)
-    
     conn.commit()
     conn.close()
 
-# Initialize database
 init_db()
 
 # Database helper functions
@@ -114,27 +108,23 @@ logging.basicConfig(
     level=logging.INFO
 )
 
-# List of valid dimensions (multiples of 32)
 VALID_DIMENSIONS = [
     "512x512", "768x768", "1024x1024", "1280x1280", "1536x1536", "2048x2048",
     "512x768", "768x1024", "1024x1280", "1280x1536", "1536x2048"
 ]
 
-# Animation settings
 LOADING_EMOJIS = ["🌑", "🌒", "🌓", "🌔", "🌕", "🌖", "🌗", "🌘"]
 PROGRESS_BAR_LENGTH = 10
 
 async def show_loading_animation(message, prompt):
-    """Display animated loading message"""
     loading_message = await message.reply_text(
         f"🎨 **Creating Artwork**\n\n"
         f"📝 *Prompt:* {prompt}\n\n"
         f"{LOADING_EMOJIS[0]} |{'▱' * PROGRESS_BAR_LENGTH}| 0%\n"
         f"⏳ Estimated time: 15-25 seconds"
     )
-    
     for i in range(1, 9):
-        await asyncio.sleep(2)  # Update every 2 seconds
+        await asyncio.sleep(2)
         progress = min(i * 12, 100)
         bar = "▰" * int(PROGRESS_BAR_LENGTH * i/8) + "▱" * (PROGRESS_BAR_LENGTH - int(PROGRESS_BAR_LENGTH * i/8))
         try:
@@ -145,15 +135,13 @@ async def show_loading_animation(message, prompt):
                 f"⏳ Remaining: {25 - i*2} seconds"
             )
         except:
-            pass  # Prevent errors if message was deleted
-    
+            pass
     return loading_message
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     add_user(user_id)
     user = get_user(user_id)
-    
     welcome_msg = (
         "🌟 *Welcome to Indie AI Studio* 🎨\n\n"
         "Transform your imagination into stunning digital art!\n\n"
@@ -168,10 +156,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "- /redeem : Apply coupon code\n"
         "- /help : Full instructions"
     ).format(user[1], int(user[1] * 2))
-    
     if user_id == ADMIN_ID:
         welcome_msg += "\n\n👑 *Admin Panel:* /admin"
-    
     await update.message.reply_text(welcome_msg, parse_mode='Markdown')
 
 async def list_sizes(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -182,23 +168,19 @@ async def check_credits(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     add_user(user_id)
     user = get_user(user_id)
-    
     await update.message.reply_text(
         f"💎 *Your Credits:* {user[1]:.1f}\n"
-        f"🖼️ *Images Available:* {int(user[1] * 2)}"
-    )
+        f"🖼️ *Images Available:* {int(user[1] * 2)}")
 
 async def redeem_coupon(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     add_user(user_id)
-    
     try:
         code = context.args[0].upper()
         coupon = get_coupon(code)
-        
         if not coupon:
             await update.message.reply_text("❌ Invalid coupon code")
-        elif coupon[2]:  # Check if used
+        elif coupon[2]:
             await update.message.reply_text("❌ Coupon already used")
         else:
             user = get_user(user_id)
@@ -213,33 +195,27 @@ async def admin_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
         await update.message.reply_text("❌ Unauthorized!")
         return
-    
     admin_msg = """
 👑 *Admin Panel*
-
 📊 /users - List all users
 🔍 /finduser <id> - Find user details
 🚫 /block <id> - Block user
 🎟️ /createcoupon <credits> - Generate coupon
-📈 /stats - System statistics
-    """
+📈 /stats - System statistics"""
     await update.message.reply_text(admin_msg, parse_mode='Markdown')
 
 async def list_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
         return
-    
     users = get_all_users()
     user_list = "\n".join(
         f"ID: {u[0]} | Credits: {u[1]} | Blocked: {bool(u[2])} | Images: {u[3]}"
-        for u in users
-    )
+        for u in users)
     await update.message.reply_text(f"📊 Users:\n{user_list}")
 
 async def create_coupon(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
         return
-    
     try:
         credits = float(context.args[0])
         code = str(uuid4())[:8].upper()
@@ -252,26 +228,19 @@ async def handle_generation(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     add_user(user_id)
     user = get_user(user_id)
-    
-    if user[2]:  # Check if blocked
-        await update.message.reply_text("🔴 *Account Restricted*\n\n"
-                                      "Your account has been restricted from generating art.")
+    if user[2]:
+        await update.message.reply_text("🔴 *Account Restricted*\n\nYour account has been restricted from generating art.")
         return
-    
     if user[1] < CREDIT_PER_IMAGE:
         await update.message.reply_text(
             "💎 *Insufficient Credits*\n\n"
             f"You need {CREDIT_PER_IMAGE} credits to generate an image.\n"
             f"Current balance: {user[1]:.1f} credits\n\n"
             "Use /credits to check your balance\n"
-            "Use /redeem to apply a coupon code"
-        )
+            "Use /redeem to apply a coupon code")
         return
-    
     try:
         text = update.message.text.strip()
-        
-        # Parse dimensions and prompt
         if 'x' in text and text.split('x')[0].isdigit() and text.split('x')[1].split()[0].isdigit():
             dimensions, *prompt_parts = text.split()
             width, height = map(int, dimensions.split('x'))
@@ -279,22 +248,15 @@ async def handle_generation(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             width, height = 1024, 768
             prompt = text
-        
-        # Validate dimensions
         if f"{width}x{height}" not in VALID_DIMENSIONS:
             await update.message.reply_text(
                 "⚠️ *Invalid Dimensions*\n\n"
                 "Please choose from these standard sizes:\n"
                 + "\n".join(VALID_DIMENSIONS) +
                 "\n\nExample: `/generate 1024x768 A futuristic city`",
-                parse_mode='Markdown'
-            )
+                parse_mode='Markdown')
             return
-        
-        # Start loading animation
         loading_task = asyncio.create_task(show_loading_animation(update.message, prompt))
-        
-        # Generate image
         response = requests.post(
             "https://api.together.xyz/v1/images/generations",
             headers={
@@ -309,40 +271,28 @@ async def handle_generation(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "steps": FIXED_STEPS,
                 "n": 1,
                 "response_format": "b64_json"
-            }
-        )
-
-        # Cancel loading animation
+            })
         loading_message = await loading_task
         await loading_message.delete()
-
         if response.status_code == 200:
             image_data = response.json().get('data', [{}])[0].get('b64_json', '')
             if image_data:
-                # Convert and send image
                 image_bytes = base64.b64decode(image_data)
                 img = Image.open(BytesIO(image_bytes))
                 png_buffer = BytesIO()
                 img.save(png_buffer, format='PNG')
                 png_buffer.seek(0)
-                
-                # Create beautiful caption
                 caption = (
                     f"🖼️ *Your AI Masterpiece is Ready!*\n\n"
                     f"📝 **Prompt:** {prompt}\n"
                     f"📐 **Dimensions:** {width}x{height}\n"
                     f"💎 **Credits Used:** {CREDIT_PER_IMAGE}\n"
                     f"🏆 **Total Artworks:** {user[3] + 1}\n\n"
-                    f"✨ Keep creating with /generate"
-                )
-                
+                    f"✨ Keep creating with /generate")
                 await update.message.reply_photo(
                     photo=InputFile(png_buffer, filename="artwork.png"),
                     caption=caption,
-                    parse_mode='Markdown'
-                )
-                
-                # Update user credits
+                    parse_mode='Markdown')
                 new_credits = user[1] - CREDIT_PER_IMAGE
                 new_images = user[3] + 1
                 update_user(user_id, credits=new_credits, images_generated=new_images)
@@ -350,26 +300,31 @@ async def handle_generation(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await update.message.reply_text(
                     "⚠️ *Generation Failed*\n\n"
                     "The AI couldn't create an image for this prompt.\n"
-                    "Please try a different description."
-                )
+                    "Please try a different description.")
         else:
             await update.message.reply_text(
                 "⚠️ *Service Unavailable*\n\n"
                 "The AI art generator is currently busy.\n"
-                "Please try again in a few minutes."
-            )
+                "Please try again in a few minutes.")
     except Exception as e:
         logging.error(f"Error generating image: {e}")
         await update.message.reply_text(
             "⚠️ *Unexpected Error*\n\n"
             "We're experiencing technical difficulties.\n"
-            "Our team has been notified. Please try again later."
+            "Our team has been notified. Please try again later.")
+
+async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Log errors and notify user"""
+    logging.error(f"Error while handling update {update}: {context.error}")
+    if update.message:
+        await update.message.reply_text(
+            "⚠️ *Oops! Something went wrong*\n\n"
+            "Our engineers have been notified about this issue.\n"
+            "Please try again later."
         )
 
 def main():
     application = Application.builder().token(BOT_TOKEN).build()
-
-    # Register handlers
     application.add_handler(CommandHandler('start', start))
     application.add_handler(CommandHandler('generate', handle_generation))
     application.add_handler(CommandHandler('sizes', list_sizes))
@@ -378,10 +333,7 @@ def main():
     application.add_handler(CommandHandler('admin', admin_menu))
     application.add_handler(CommandHandler('users', list_users))
     application.add_handler(CommandHandler('createcoupon', create_coupon))
-    
-    # Add error handler
     application.add_error_handler(error_handler)
-    
     application.run_polling()
 
 if __name__ == '__main__':
