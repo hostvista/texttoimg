@@ -298,7 +298,7 @@ async def handle_generation(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "Content-Type": "application/json"
             },
             json={
-                "model": "stability-ai/sd-turbo",
+                "model": "black-forest-labs/FLUX.1-schnell-Free",
                 "prompt": prompt,
                 "width": width,
                 "height": height,
