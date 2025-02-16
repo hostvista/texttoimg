@@ -228,9 +228,11 @@ async def handle_generation(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     add_user(user_id)
     user = get_user(user_id)
-    if user[2]:
+    
+    if user[2]:  # Check if blocked
         await update.message.reply_text("🔴 *Account Restricted*\n\nYour account has been restricted from generating art.")
         return
+    
     if user[1] < CREDIT_PER_IMAGE:
         await update.message.reply_text(
             "💎 *Insufficient Credits*\n\n"
@@ -239,24 +241,56 @@ async def handle_generation(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Use /credits to check your balance\n"
             "Use /redeem to apply a coupon code")
         return
+    
     try:
         text = update.message.text.strip()
-        if 'x' in text and text.split('x')[0].isdigit() and text.split('x')[1].split()[0].isdigit():
-            dimensions, *prompt_parts = text.split()
-            width, height = map(int, dimensions.split('x'))
-            prompt = ' '.join(prompt_parts)
+        
+        # Parse dimensions and prompt
+        if 'x' in text:
+            parts = text.split()
+            dimensions = parts[0]
+            prompt = ' '.join(parts[1:]) if len(parts) > 1 else ""
+            
+            # Validate dimensions format
+            if 'x' in dimensions:
+                width, height = dimensions.split('x')
+                if width.isdigit() and height.isdigit():
+                    width = int(width)
+                    height = int(height)
+                    if f"{width}x{height}" in VALID_DIMENSIONS:
+                        # Dimensions are valid, proceed with generation
+                        pass
+                    else:
+                        await update.message.reply_text(
+                            "⚠️ *Invalid Dimensions*\n\n"
+                            "Please choose from these standard sizes:\n"
+                            + "\n".join(VALID_DIMENSIONS) +
+                            "\n\nExample: `/generate 1024x768 A futuristic city`",
+                            parse_mode='Markdown')
+                        return
+                else:
+                    await update.message.reply_text(
+                        "⚠️ *Invalid Dimensions*\n\n"
+                        "Width and height must be numbers.\n"
+                        "Example: `/generate 1024x768 A futuristic city`",
+                        parse_mode='Markdown')
+                    return
+            else:
+                await update.message.reply_text(
+                    "⚠️ *Invalid Dimensions*\n\n"
+                    "Please use the format: `/generate WxH <prompt>`\n"
+                    "Example: `/generate 1024x768 A futuristic city`",
+                    parse_mode='Markdown')
+                return
         else:
+            # Default dimensions if none specified
             width, height = 1024, 768
             prompt = text
-        if f"{width}x{height}" not in VALID_DIMENSIONS:
-            await update.message.reply_text(
-                "⚠️ *Invalid Dimensions*\n\n"
-                "Please choose from these standard sizes:\n"
-                + "\n".join(VALID_DIMENSIONS) +
-                "\n\nExample: `/generate 1024x768 A futuristic city`",
-                parse_mode='Markdown')
-            return
+        
+        # Start loading animation
         loading_task = asyncio.create_task(show_loading_animation(update.message, prompt))
+        
+        # Generate image
         response = requests.post(
             "https://api.together.xyz/v1/images/generations",
             headers={
@@ -272,16 +306,22 @@ async def handle_generation(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "n": 1,
                 "response_format": "b64_json"
             })
+        
+        # Cancel loading animation
         loading_message = await loading_task
         await loading_message.delete()
+
         if response.status_code == 200:
             image_data = response.json().get('data', [{}])[0].get('b64_json', '')
             if image_data:
+                # Convert and send image
                 image_bytes = base64.b64decode(image_data)
                 img = Image.open(BytesIO(image_bytes))
                 png_buffer = BytesIO()
                 img.save(png_buffer, format='PNG')
                 png_buffer.seek(0)
+                
+                # Create beautiful caption
                 caption = (
                     f"🖼️ *Your AI Masterpiece is Ready!*\n\n"
                     f"📝 **Prompt:** {prompt}\n"
@@ -289,10 +329,13 @@ async def handle_generation(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     f"💎 **Credits Used:** {CREDIT_PER_IMAGE}\n"
                     f"🏆 **Total Artworks:** {user[3] + 1}\n\n"
                     f"✨ Keep creating with /generate")
+                
                 await update.message.reply_photo(
                     photo=InputFile(png_buffer, filename="artwork.png"),
                     caption=caption,
                     parse_mode='Markdown')
+                
+                # Update user credits
                 new_credits = user[1] - CREDIT_PER_IMAGE
                 new_images = user[3] + 1
                 update_user(user_id, credits=new_credits, images_generated=new_images)
@@ -301,6 +344,17 @@ async def handle_generation(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     "⚠️ *Generation Failed*\n\n"
                     "The AI couldn't create an image for this prompt.\n"
                     "Please try a different description.")
+        else:
+            await update.message.reply_text(
+                "⚠️ *Service Unavailable*\n\n"
+                "The AI art generator is currently busy.\n"
+                "Please try again in a few minutes.")
+    except Exception as e:
+        logging.error(f"Error generating image: {e}")
+        await update.message.reply_text(
+            "⚠️ *Unexpected Error*\n\n"
+            "We're experiencing technical difficulties.\n"
+            "Our team has been notified. Please try again later.")
         else:
             await update.message.reply_text(
                 "⚠️ *Service Unavailable*\n\n"
