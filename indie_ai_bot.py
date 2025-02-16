@@ -378,11 +378,19 @@ def main():
     application.add_handler(CommandHandler('admin', admin_menu))
     application.add_handler(CommandHandler('users', list_users))
     application.add_handler(CommandHandler('createcoupon', create_coupon))
-    
-    # Add error handler
-    application.add_error_handler(error_handler)
-    
-    application.run_polling()
+    def error_handler(update, context):
+    print(f"Error: {context.error}")
 
-if __name__ == '__main__':
+from telegram import Update
+from telegram.ext import CallbackContext
+
+def error_handler(update: Update, context: CallbackContext) -> None:
+    """Log the error and send a message to the user."""
+    print(f"Exception while handling an update: {context.error}")
+    if update and update.effective_chat:
+        update.effective_chat.send_message("An unexpected error occurred. Please try again later.")
+
+
+if __name__ == "__main__":
     main()
+    
