@@ -1,5 +1,5 @@
 import telegram
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, CallbackContext
+from telegram.ext import Updater, CommandHandler, MessageHandler, filters, CallbackContext, ConversationHandler
 import requests
 import base64
 import time
@@ -19,11 +19,12 @@ db.commit()
 TOKEN = "7279159630:AAEbKizuZoudyTHSAz7_2L6L-RL7g9tkIbQ"
 API_KEY = "tgp_v1_9Mj45vGmCp1OCbi7V3d96QfBlR2BYmWLUgZzEo9DfFU"
 ADMIN_ID = 5500026782  # Replace with your Telegram user ID
+
 # Generate loading bar
 def display_loading_bar(duration=10):
     for i in range(101):
         time.sleep(duration / 100)
-        sys.stdout.write(f'\rGenerating image: [{'#' * (i // 2)}{'-' * (50 - i // 2)}] {i}%')
+        sys.stdout.write(f'\rGenerating image: [{{"#" * (i // 2)}}{{"-" * (50 - i // 2)}}] {i}%')
         sys.stdout.flush()
     print('\nImage generation complete!')
 
@@ -43,7 +44,7 @@ def generate_image(update, context):
     if result and result[0] >= 1:
         prompt = update.message.text.replace('/generate ', '')
         display_loading_bar()
-        
+
         response = requests.post("https://api.together.xyz/v1/images/generations", headers={
             "Authorization": f"Bearer {API_KEY}",
             "Content-Type": "application/json"
@@ -56,7 +57,7 @@ def generate_image(update, context):
             "n": 1,
             "response_format": "b64_json"
         })
-        
+
         if response.status_code == 200:
             image_data = response.json()['data'][0]['b64_json']
             image_bytes = base64.b64decode(image_data)
@@ -107,14 +108,16 @@ def create_coupon(update, context):
 
 # Main function
 def main():
-    app = ApplicationBuilder().token(TOKEN).build()
-    
-    app.add_handler(CommandHandler('start', start))
-    app.add_handler(CommandHandler('generate', generate_image))
-    app.add_handler(CommandHandler('claim', claim_coupon))
-    app.add_handler(CommandHandler('createcoupon', create_coupon))
-    
-    app.run_polling()
+    updater = Updater(token=TOKEN, use_context=True)
+    dp = updater.dispatcher
+
+    dp.add_handler(CommandHandler('start', start))
+    dp.add_handler(CommandHandler('generate', generate_image))
+    dp.add_handler(CommandHandler('claim', claim_coupon))
+    dp.add_handler(CommandHandler('createcoupon', create_coupon, pass_args=True))
+
+    updater.start_polling()
+    updater.idle()
 
 if __name__ == '__main__':
     main()
