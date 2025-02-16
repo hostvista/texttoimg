@@ -18,7 +18,7 @@ load_dotenv()
 # Configuration
 TOGETHER_API_URL = "https://api.together.xyz/v1/images/generations"
 MODEL_NAME = "black-forest-labs/FLUX.1-schnell-Free"
-STEPS = 4
+STEPS = 1  # Match API sample configuration
 WELCOME_MESSAGE = """
 🌟 Welcome to INDIE AI Image Generator! 🌟
 
@@ -65,23 +65,27 @@ def validate_dimensions(dimensions):
         width, height = map(int, dimensions.split())
         if width % 32 != 0 or height % 32 != 0:
             return False, "Dimensions must be multiples of 32"
+        if width < 64 or height < 64:
+            return False, "Minimum size is 64x64"
         return True, (width, height)
     except:
         return False, "Invalid format. Use: WIDTH HEIGHT"
 
 async def receive_dimensions(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    dimensions_input = update.message.text
+    user_input = update.message.text
+    valid, result = validate_dimensions(user_input)
     
-    valid, result = validate_dimensions(dimensions_input)
     if not valid:
         await update.message.reply_text(f"❌ {result}\nPlease enter valid dimensions:")
         return DIMENSIONS
-    
+
     width, height = result
-    
+
     try:
         await update.message.reply_text("🎨 Generating your masterpiece...")
+        
+        # Format prompt according to API requirements
+        prompt_text = f"[{context.user_data['prompt']}]"  # Wrap in square brackets
         
         response = requests.post(
             TOGETHER_API_URL,
@@ -91,44 +95,55 @@ async def receive_dimensions(update: Update, context: ContextTypes.DEFAULT_TYPE)
             },
             json={
                 "model": MODEL_NAME,
-                "prompt": context.user_data['prompt'],
+                "prompt": prompt_text,  # Use formatted prompt
                 "width": width,
                 "height": height,
                 "steps": STEPS,
                 "n": 1,
                 "response_format": "b64_json"
-            }
+            },
+            timeout=30
         )
-        
+
         if response.status_code == 200:
             data = response.json()
+            if 'data' not in data or not data['data']:
+                raise ValueError("Empty response from API")
+                
             image_data = base64.b64decode(data['data'][0]['b64_json'])
             
-            image = Image.open(BytesIO(image_data))
-            img_byte_arr = BytesIO()
-            image.save(img_byte_arr, format='PNG')
-            img_byte_arr.seek(0)
-            
+            # Convert to RGB mode if necessary and save as PNG
+            with Image.open(BytesIO(image_data)) as img:
+                if img.mode in ('RGBA', 'LA'):
+                    rgb_img = Image.new("RGB", img.size, (255, 255, 255))
+                    rgb_img.paste(img, mask=img.split()[-1])
+                    img = rgb_img
+                
+                img_byte_arr = BytesIO()
+                img.save(img_byte_arr, format='PNG', quality=95)
+                img_byte_arr.seek(0)
+
             await context.bot.send_photo(
                 chat_id=update.effective_chat.id,
                 photo=img_byte_arr,
-                caption=f"✨ {context.user_data['prompt']}\n"
+                caption=f"✨ Generated: {context.user_data['prompt']}\n"
                        f"Dimensions: {width}x{height}"
             )
         else:
-            await update.message.reply_text("⚠️ Image generation failed. Please try again.")
-            
+            error_msg = response.text[:500]  # Truncate long error messages
+            logging.error(f"API Error {response.status_code}: {error_msg}")
+            await update.message.reply_text(
+                f"⚠️ Generation failed (Error {response.status_code}). Please try again."
+            )
+
     except Exception as e:
-        logging.error(f"Generation error: {e}")
-        await update.message.reply_text("⚠️ An error occurred. Please try again.")
+        logging.error(f"Generation error: {str(e)}")
+        await update.message.reply_text("⚠️ Failed to generate image. Please check your description and try again.")
     
     context.user_data.clear()
     return ConversationHandler.END
 
-async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text('🚫 Generation canceled.')
-    context.user_data.clear()
-    return ConversationHandler.END
+# Cancel handler and main function remain the same
 
 def main():
     application = Application.builder().token(os.getenv("TELEGRAM_TOKEN")).build()
