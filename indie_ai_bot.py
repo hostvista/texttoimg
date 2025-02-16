@@ -18,7 +18,7 @@ load_dotenv()
 # Configuration
 TOGETHER_API_URL = "https://api.together.xyz/v1/images/generations"
 MODEL_NAME = "black-forest-labs/FLUX.1-schnell-Free"
-STEPS = 1  # Match API sample configuration
+STEPS = 1
 WELCOME_MESSAGE = """
 🌟 Welcome to INDIE AI Image Generator! 🌟
 
@@ -85,7 +85,7 @@ async def receive_dimensions(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await update.message.reply_text("🎨 Generating your masterpiece...")
         
         # Format prompt according to API requirements
-        prompt_text = f"[{context.user_data['prompt']}]"  # Wrap in square brackets
+        prompt_text = f"[{context.user_data['prompt']}]"
         
         response = requests.post(
             TOGETHER_API_URL,
@@ -95,7 +95,7 @@ async def receive_dimensions(update: Update, context: ContextTypes.DEFAULT_TYPE)
             },
             json={
                 "model": MODEL_NAME,
-                "prompt": prompt_text,  # Use formatted prompt
+                "prompt": prompt_text,
                 "width": width,
                 "height": height,
                 "steps": STEPS,
@@ -112,7 +112,6 @@ async def receive_dimensions(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 
             image_data = base64.b64decode(data['data'][0]['b64_json'])
             
-            # Convert to RGB mode if necessary and save as PNG
             with Image.open(BytesIO(image_data)) as img:
                 if img.mode in ('RGBA', 'LA'):
                     rgb_img = Image.new("RGB", img.size, (255, 255, 255))
@@ -130,7 +129,7 @@ async def receive_dimensions(update: Update, context: ContextTypes.DEFAULT_TYPE)
                        f"Dimensions: {width}x{height}"
             )
         else:
-            error_msg = response.text[:500]  # Truncate long error messages
+            error_msg = response.text[:500]
             logging.error(f"API Error {response.status_code}: {error_msg}")
             await update.message.reply_text(
                 f"⚠️ Generation failed (Error {response.status_code}). Please try again."
@@ -143,12 +142,14 @@ async def receive_dimensions(update: Update, context: ContextTypes.DEFAULT_TYPE)
     context.user_data.clear()
     return ConversationHandler.END
 
-# Cancel handler and main function remain the same
+async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text('🚫 Generation canceled.')
+    context.user_data.clear()
+    return ConversationHandler.END
 
 def main():
     application = Application.builder().token(os.getenv("TELEGRAM_TOKEN")).build()
 
-    # Conversation handler for image generation
     conv_handler = ConversationHandler(
         entry_points=[CommandHandler('generate', generate_image_start)],
         states={
