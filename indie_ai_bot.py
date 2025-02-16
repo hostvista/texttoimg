@@ -34,14 +34,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 _Transform your ideas into stunning visual art with AI!_
 
-✨ **Commands:**
-- `/start`: Show this menu.
-- `/help`: Display all commands.
-- `/settings`: Show current settings.
-- `/status`: Check bot status.
-- `/feedback <message>`: Send feedback to the developer.
-
-🎯 **How to Use:**
+✨ **How to Use:**
 1. Simply type your idea (e.g., `A futuristic cityscape`).
 2. The bot will generate a 1024x768 image by default.
 3. For custom sizes, use the format: `WxH <prompt>` (e.g., `512x512 A cute puppy`).
@@ -50,62 +43,6 @@ _Transform your ideas into stunning visual art with AI!_
     """.format(active=MAX_CONCURRENT_REQUESTS-active_requests, max=MAX_CONCURRENT_REQUESTS)
     
     await update.message.reply_text(welcome_message, parse_mode='Markdown')
-
-async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    help_message = """
-🛠️ *Available Commands:*
-
-- `/start`: Show the main menu.
-- `/help`: Display all commands.
-- `/settings`: Show current settings (e.g., default dimensions, steps).
-- `/status`: Check bot status (e.g., queue position, active requests).
-- `/feedback <message>`: Send feedback to the developer.
-
-🎯 **How to Use:**
-1. Simply type your idea (e.g., `A futuristic cityscape`).
-2. The bot will generate a 1024x768 image by default.
-3. For custom sizes, use the format: `WxH <prompt>` (e.g., `512x512 A cute puppy`).
-    """
-    await update.message.reply_text(help_message, parse_mode='Markdown')
-
-async def settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    settings_message = """
-⚙️ *Current Settings:*
-
-- **Default Dimensions:** {width}x{height}
-- **Steps:** {steps} (fixed)
-- **Max Concurrent Requests:** {max_requests}
-    """.format(
-        width=DEFAULT_WIDTH,
-        height=DEFAULT_HEIGHT,
-        steps=FIXED_STEPS,
-        max_requests=MAX_CONCURRENT_REQUESTS
-    )
-    await update.message.reply_text(settings_message, parse_mode='Markdown')
-
-async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    status_message = """
-📊 *Bot Status:*
-
-- **Active Requests:** {active}
-- **Queue Length:** {queue}
-- **Slots Available:** {slots}
-    """.format(
-        active=active_requests,
-        queue=request_queue.qsize(),
-        slots=MAX_CONCURRENT_REQUESTS-active_requests
-    )
-    await update.message.reply_text(status_message, parse_mode='Markdown')
-
-async def feedback_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    feedback_text = ' '.join(context.args)
-    if not feedback_text:
-        await update.message.reply_text("❌ Please provide feedback. Example: `/feedback I love this bot!`")
-        return
-    
-    # Here you can save the feedback to a database or send it to your email
-    logging.info(f"Feedback from {update.message.from_user.username}: {feedback_text}")
-    await update.message.reply_text("✅ Thank you for your feedback! We appreciate it.")
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global active_requests
@@ -149,17 +86,74 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logging.error(f"Error in handle_message: {e}")
         await update.message.reply_text("❌ An error occurred. Please try again.")
 
-# ... [keep the process_request, check_queue, and error_handler functions same as previous version]
+async def process_request(update: Update, context: ContextTypes.DEFAULT_TYPE, prompt: str, width: int, height: int):
+    try:
+        # Show typing action
+        typing_task = asyncio.create_task(
+            update.message.reply_chat_action(action="upload_photo")
+        )
+        
+        # Show generating message
+        status_msg = await update.message.reply_text("🎨 Generating your masterpiece... Please wait!")
+        
+        # Call Together API
+        response = requests.post(
+            "https://api.together.xyz/v1/images/generations",
+            headers={
+                "Authorization": f"Bearer {TOGETHER_API_KEY}",
+                "Content-Type": "application/json"
+            },
+            json={
+                "model": "black-forest-labs/FLUX.1-schnell-Free",
+                "prompt": prompt,
+                "width": width,
+                "height": height,
+                "steps": FIXED_STEPS,  # Fixed at 4 steps
+                "n": 1,
+                "response_format": "b64_json"
+            }
+        )
+
+        if response.status_code == 200:
+            image_data = response.json().get('data', [{}])[0].get('b64_json', '')
+            if image_data:
+                # Convert base64 to PNG
+                image_bytes = base64.b64decode(image_data)
+                img = Image.open(BytesIO(image_bytes))
+                
+                # Convert to PNG in memory
+                png_buffer = BytesIO()
+                img.save(png_buffer, format='PNG')
+                png_buffer.seek(0)
+                
+                # Send the image
+                await update.message.reply_photo(
+                    photo=InputFile(png_buffer, filename="artwork.png"),
+                    caption=f"🖼️ *Your Indie AI Masterpiece!* \n\n**Prompt:** {prompt}\n**Size:** {width}x{height}",
+                    parse_mode='Markdown'
+                )
+                await status_msg.edit_text("✅ Done! Enjoy your artwork!")
+            else:
+                await update.message.reply_text("❌ No image generated. Please try a different prompt.")
+        else:
+            await update.message.reply_text("⚠️ Creation failed. Please refine your prompt.")
+            
+    except Exception as e:
+        logging.error(f"Error processing request: {e}")
+        await update.message.reply_text("❌ An error occurred. Please try again later.")
+    finally:
+        global active_requests
+        async with processing_lock:
+            active_requests -= 1
+        await check_queue()
+
+# ... [keep the check_queue and error_handler functions same as previous version]
 
 def main():
     application = Application.builder().token(BOT_TOKEN).build()
 
     # Handlers
     application.add_handler(CommandHandler('start', start))
-    application.add_handler(CommandHandler('help', help_command))
-    application.add_handler(CommandHandler('settings', settings_command))
-    application.add_handler(CommandHandler('status', status_command))
-    application.add_handler(CommandHandler('feedback', feedback_command))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     application.add_error_handler(error_handler)
 
