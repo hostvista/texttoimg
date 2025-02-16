@@ -5,7 +5,10 @@ import base64
 import sqlite3
 import random
 import string
+import requests
 from datetime import datetime, timedelta
+from io import BytesIO
+from PIL import Image, ImageDraw, ImageFont
 from telegram import Update, InputFile, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Application,
@@ -17,9 +20,6 @@ from telegram.ext import (
     ConversationHandler
 )
 from dotenv import load_dotenv
-import requests
-from io import BytesIO
-from PIL import Image, ImageDraw, ImageFont
 
 # Load environment variables
 load_dotenv()
@@ -30,7 +30,6 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_USER_ID = int(os.getenv("ADMIN_USER_ID"))
 MAX_CONCURRENT_REQUESTS = 10
 BASE_CREDITS = 3
-PREMIUM_CREDITS = 15
 REFERRAL_CREDITS = 5
 DAILY_CREDITS = 2
 RATE_LIMIT = 5
@@ -94,26 +93,24 @@ def add_watermark(image):
     try:
         draw = ImageDraw.Draw(image)
         font = ImageFont.truetype(FONT_PATH, 40)
-    except:
-        font = ImageFont.load_default()
-    
-    text = WATERMARK_TEXT
-    textwidth, textheight = draw.textsize(text, font)
-    x = (image.width - textwidth) / 2
-    y = (image.height - textheight) / 2
-    draw.text((x, y), text, font=font, fill=(255,255,255,128))
+        text = WATERMARK_TEXT
+        textwidth, textheight = draw.textsize(text, font)
+        x = (image.width - textwidth) / 2
+        y = (image.height - textheight) / 2
+        draw.text((x, y), text, font=font, fill=(255,255,255,128))
+    except Exception as e:
+        logging.error(f"Watermark error: {str(e)}")
     return image
 
 # --- Keyboard Layouts ---
 def main_menu(user):
-    buttons = [
-        [InlineKeyboardButton("🖼 Generate Image", callback_data='generate')],
-        [InlineKeyboardButton("💰 Credits: {}".format(user[2]), callback_data='credits'),
-         InlineKeyboardButton("🎫 Redeem Coupon", callback_data='redeem')],
-        [InlineKeyboardButton("📜 History", callback_data='history'),
-         InlineKeyboardButton("💎 Premium", callback_data='premium')]
-    ]
-    return InlineKeyboardMarkup(buttons)
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("🖼 Generate Image", callback_data='generate'),
+         InlineKeyboardButton("💰 Credits", callback_data='credits')],
+        [InlineKeyboardButton("🎫 Redeem Coupon", callback_data='redeem'),
+         InlineKeyboardButton("📜 History", callback_data='history')],
+        [InlineKeyboardButton("💎 Premium", callback_data='premium')]
+    ])
 
 def size_keyboard():
     return InlineKeyboardMarkup([
@@ -125,16 +122,16 @@ def size_keyboard():
 
 def admin_keyboard():
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("👥 User Management", callback_data='admin_users'),
-         InlineKeyboardButton("📊 Statistics", callback_data='admin_stats')],
-        [InlineKeyboardButton("🎫 Create Coupon", callback_data='admin_coupon'),
-         InlineKeyboardButton("📢 Broadcast", callback_data='admin_broadcast')]
+        [InlineKeyboardButton("👥 Users", callback_data='admin_users'),
+         InlineKeyboardButton("📊 Stats", callback_data='admin_stats')],
+        [InlineKeyboardButton("🎫 Coupons", callback_data='admin_coupons'),
+         InlineKeyboardButton("🚫 Block User", callback_data='admin_block')]
     ])
 
 # --- Core Commands ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = get_user(update.effective_user.id)
-    if context.args and len(context.args) > 0:
+    if context.args and context.args[0].isdigit():
         referrer_id = int(context.args[0])
         if referrer_id != user[0]:
             c.execute("UPDATE users SET credits = credits + ? WHERE user_id = ?",
@@ -144,9 +141,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             conn.commit()
     
     welcome_msg = f"""
-🎨 *Welcome to IndieAI Premium* 🌟
-✨ Credits Available: {user[2]}
-🔗 Your Referral Code: `{user[5]}`
+🎨 *IndieAI Image Generator* 🌟
+✨ Credits: {user[2]}
+🔗 Referral Code: `{user[5]}`
     """
     await update.message.reply_text(
         welcome_msg,
@@ -180,7 +177,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return ENTERING_PROMPT
 
     elif data == 'custom':
-        await query.message.reply_text("Enter size (e.g., 1280x720):")
+        await query.message.reply_text("Enter size (WIDTHxHEIGHT):")
         return SELECTING_SIZE
 
     elif data == 'history':
@@ -210,7 +207,8 @@ async def handle_custom_size(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await update.message.reply_text("📝 Enter prompt:")
         return ENTERING_PROMPT
         
-    except:
+    except Exception as e:
+        logging.error(f"Size error: {str(e)}")
         await update.message.reply_text("❌ Invalid format! Use WxH")
         return SELECTING_SIZE
 
@@ -221,7 +219,8 @@ async def generate_image(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     try:
         width, height = map(int, size.split('x'))
-    except:
+    except Exception as e:
+        logging.error(f"Size conversion error: {str(e)}")
         await update.message.reply_text("❌ Invalid size!")
         return ConversationHandler.END
 
@@ -229,15 +228,17 @@ async def generate_image(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Insufficient credits!")
         return ConversationHandler.END
 
+    processing_msg = None
     try:
-        # Deduct credits
-        c.execute("UPDATE users SET credits = ? WHERE user_id = ?",
-                 (user[2] - 1, user[0]))
+        processing_msg = await update.message.reply_text("🔄 Generating your image...")
         
-        # Generate image
+        # API Request
         response = requests.post(
             "https://api.together.xyz/v1/images/generations",
-            headers={"Authorization": f"Bearer {TOGETHER_API_KEY}"},
+            headers={
+                "Authorization": f"Bearer {TOGETHER_API_KEY}",
+                "Content-Type": "application/json"
+            },
             json={
                 "model": "black-forest-labs/FLUX.1-schnell-Free",
                 "prompt": prompt,
@@ -247,50 +248,63 @@ async def generate_image(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "n": 1,
                 "response_format": "b64_json"
             },
-            timeout=30
+            timeout=60
         )
 
-        if response.status_code == 200:
-            image_data = response.json()['data'][0]['b64_json']
-            image_bytes = base64.b64decode(image_data)
-            img = Image.open(BytesIO(image_bytes))
-            
-            if not user[4]:
-                img = add_watermark(img)
-            
-            png_buffer = BytesIO()
-            img.save(png_buffer, format='PNG')
-            png_buffer.seek(0)
-            
-            await update.message.reply_photo(
-                photo=InputFile(png_buffer, filename="artwork.png"),
-                caption=f"🖼 {width}x{height} | Credits: {user[2]-1}"
-            )
-            
-            # Save history
-            c.execute('''INSERT INTO images 
-                       (user_id, prompt, dimensions) 
-                       VALUES (?, ?, ?)''',
-                     (user[0], prompt, f"{width}x{height}"))
-            
-            # Update metrics
-            c.execute('''UPDATE users 
-                       SET requests_count = requests_count + 1,
-                           last_request = ?
-                       WHERE user_id = ?''',
-                     (datetime.now(), user[0]))
-            conn.commit()
+        if response.status_code != 200:
+            raise Exception(f"API Error {response.status_code}: {response.text}")
 
-        else:
-            await update.message.reply_text("⚠️ Generation failed! Refunded.")
-            c.execute("UPDATE users SET credits=? WHERE user_id=?", (user[2], user[0]))
-            conn.commit()
+        data = response.json()
+        if not data.get('data') or not data['data'][0].get('b64_json'):
+            raise Exception("Invalid API response format")
 
-    except Exception as e:
-        logging.error(f"Error: {str(e)}")
-        await update.message.reply_text("❌ Generation failed! Refunded.")
-        c.execute("UPDATE users SET credits=? WHERE user_id=?", (user[2], user[0]))
+        image_data = data['data'][0]['b64_json']
+        image_bytes = base64.b64decode(image_data)
+        img = Image.open(BytesIO(image_bytes))
+        
+        if not user[4]:
+            img = add_watermark(img)
+
+        png_buffer = BytesIO()
+        img.save(png_buffer, format='PNG')
+        png_buffer.seek(0)
+
+        # Deduct credits after successful generation
+        c.execute("UPDATE users SET credits = ? WHERE user_id = ?",
+                 (user[2] - 1, user[0]))
+        
+        # Save history
+        c.execute('''INSERT INTO images 
+                   (user_id, prompt, dimensions) 
+                   VALUES (?, ?, ?)''',
+                 (user[0], prompt, f"{width}x{height}"))
         conn.commit()
+
+        await update.message.reply_photo(
+            photo=InputFile(png_buffer, filename="artwork.png"),
+            caption=f"🎨 {width}x{height} | Credits left: {user[2]-1}"
+        )
+
+    except requests.exceptions.RequestException as re:
+        error_msg = f"Request error: {str(re)}"
+        logging.error(error_msg)
+        await update.message.reply_text("⚠️ Connection error. Please try again.")
+        
+    except Exception as e:
+        error_msg = f"Generation error: {str(e)}"
+        logging.error(error_msg)
+        await update.message.reply_text("❌ Generation failed. Credits refunded!")
+        
+        if is_admin(update.effective_user.id):
+            await update.message.reply_text(f"Debug: {error_msg}")
+
+    finally:
+        if processing_msg:
+            await processing_msg.delete()
+        if 'error_msg' in locals():
+            c.execute("UPDATE users SET credits = ? WHERE user_id = ?",
+                     (user[2], user[0]))
+            conn.commit()
 
     return ConversationHandler.END
 
@@ -322,7 +336,7 @@ async def handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_TY
         """
         await query.message.reply_text(stats, parse_mode='Markdown')
 
-    elif data == 'admin_coupon':
+    elif data == 'admin_coupons':
         await query.message.reply_text("Use /createcoupon <value> <days> <uses>")
 
 async def create_coupon(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -391,10 +405,7 @@ async def redeem_coupon(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Invalid coupon!")
         return
         
-    # Update coupon
     c.execute("UPDATE coupons SET uses_left=? WHERE code=?", (coupon[3]-1, code))
-    
-    # Update user
     new_credits = get_user(user_id)[2] + coupon[1]
     c.execute("UPDATE users SET credits=? WHERE user_id=?", (new_credits, user_id))
     conn.commit()
@@ -410,7 +421,6 @@ def main():
         logging.error(f"Missing environment variables: {', '.join(missing)}")
         return
 
-    # Corrected application builder
     application = Application.builder().token(BOT_TOKEN).build()
 
     # Conversation handler
