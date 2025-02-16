@@ -3,6 +3,8 @@ import logging
 import asyncio
 import base64
 import sqlite3
+from dotenv import load_dotenv
+load_dotenv()  # This loads the .env file
 from datetime import datetime, timedelta
 from telegram import Update, InputFile, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
