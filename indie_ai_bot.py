@@ -302,7 +302,7 @@ async def handle_generation(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "Content-Type": "application/json"
             },
             json={
-                "model": "black-forest-labs/FLUX.1-schnell-Free",
+                "model": "stability-ai/sd-turbo",
                 "prompt": prompt,
                 "width": width,
                 "height": height,
@@ -378,19 +378,11 @@ def main():
     application.add_handler(CommandHandler('admin', admin_menu))
     application.add_handler(CommandHandler('users', list_users))
     application.add_handler(CommandHandler('createcoupon', create_coupon))
-    def error_handler(update, context):
-    print(f"Error: {context.error}")
-
-from telegram import Update
-from telegram.ext import CallbackContext
-
-def error_handler(update: Update, context: CallbackContext) -> None:
-    """Log the error and send a message to the user."""
-    print(f"Exception while handling an update: {context.error}")
-    if update and update.effective_chat:
-        update.effective_chat.send_message("An unexpected error occurred. Please try again later.")
-
-
-if __name__ == "__main__":
-    main()
     
+    # Add error handler
+    application.add_error_handler(error_handler)
+    
+    application.run_polling()
+
+if __name__ == '__main__':
+    main()
