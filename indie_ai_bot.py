@@ -8,12 +8,12 @@ import requests
 from io import BytesIO
 from PIL import Image
 
-# Configuration
-TOGETHER_API_KEY = os.getenv('TOGETHER_API_KEY')  # Your Together API key
-BOT_TOKEN = os.getenv('BOT_TOKEN')               # Your Telegram bot token
-MAX_CONCURRENT_REQUESTS = 10                     # Max concurrent requests
-QUEUE_CHECK_INTERVAL = 5                         # Queue check interval in seconds
-FIXED_STEPS = 4                                  # Fixed steps for image generation
+# Configuration (Replace with your actual keys/token)
+TOGETHER_API_KEY = "tgp_v1_9Mj45vGmCp1OCbi7V3d96QfBlR2BYmWLUgZzEo9DfFU"  # Replace with your Together API key
+BOT_TOKEN = "7279159630:AAEbKizuZoudyTHSAz7_2L6L-RL7g9tkIbQ"      # Replace with your Telegram bot token
+MAX_CONCURRENT_REQUESTS = 10                    # Max concurrent requests
+QUEUE_CHECK_INTERVAL = 5                        # Queue check interval in seconds
+FIXED_STEPS = 4                                 # Fixed steps for image generation
 
 # Global states
 active_requests = 0
