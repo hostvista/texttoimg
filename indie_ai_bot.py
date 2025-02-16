@@ -1,5 +1,5 @@
 import telegram
-from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, CallbackContext, ConversationHandler
+from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, CallbackContext
 import requests
 import base64
 import time
@@ -19,12 +19,11 @@ db.commit()
 TOKEN = "7279159630:AAEbKizuZoudyTHSAz7_2L6L-RL7g9tkIbQ"
 API_KEY = "tgp_v1_9Mj45vGmCp1OCbi7V3d96QfBlR2BYmWLUgZzEo9DfFU"
 ADMIN_ID = 5500026782  # Replace with your Telegram user ID
-
 # Generate loading bar
 def display_loading_bar(duration=10):
     for i in range(101):
         time.sleep(duration / 100)
-        sys.stdout.write(f'\rGenerating image: [{"#" * (i // 2)}{"-" * (50 - i // 2)}] {i}%')
+        sys.stdout.write(f'\rGenerating image: [{'#' * (i // 2)}{'-' * (50 - i // 2)}] {i}%')
         sys.stdout.flush()
     print('\nImage generation complete!')
 
@@ -89,44 +88,36 @@ def claim_coupon(update, context):
     else:
         update.message.reply_text("Invalid coupon code.")
 
-# Check credits
-def check_credits(update, context):
-    user_id = update.message.from_user.id
-    cursor.execute('SELECT credits FROM users WHERE user_id = ?', (user_id,))
-    result = cursor.fetchone()
-    if result:
-        update.message.reply_text(f"You have {result[0]} credits remaining.")
-    else:
-        update.message.reply_text("You don't have an account yet. Use /start to register.")
-
 # Admin command to create coupons
 def create_coupon(update, context):
     if update.message.from_user.id == ADMIN_ID:
-        code = ''.join(random.choices(string.ascii_uppercase + string.digits, k=8))
-        credits = int(context.args[0])
-        cursor.execute('INSERT INTO coupons (code, credits) VALUES (?, ?)', (code, credits))
-        db.commit()
-        update.message.reply_text(f"Coupon created: {code} for {credits} credits")
+        if context.args:
+            try:
+                credits = int(context.args[0])
+                code = ''.join(random.choices(string.ascii_uppercase + string.digits, k=8))
+                cursor.execute('INSERT INTO coupons (code, credits) VALUES (?, ?)', (code, credits))
+                db.commit()
+                update.message.reply_text(f"Coupon created: {code} for {credits} credits")
+            except ValueError:
+                update.message.reply_text("Please provide a valid number of credits.")
+        else:
+            update.message.reply_text("Usage: /createcoupon <credits>")
     else:
         update.message.reply_text("Unauthorized.")
 
 # Main function
 def main():
-    updater = Updater(TOKEN, use_context=True)
-    dp = updater.dispatcher
+    app = ApplicationBuilder().token(TOKEN).build()
     
-    dp.add_handler(CommandHandler('start', start))
-    dp.add_handler(CommandHandler('generate', generate_image))
-    dp.add_handler(CommandHandler('claim', claim_coupon))
-    dp.add_handler(CommandHandler('checkcredits', check_credits))
-    dp.add_handler(CommandHandler('createcoupon', create_coupon, pass_args=True))
+    app.add_handler(CommandHandler('start', start))
+    app.add_handler(CommandHandler('generate', generate_image))
+    app.add_handler(CommandHandler('claim', claim_coupon))
+    app.add_handler(CommandHandler('createcoupon', create_coupon))
     
-    updater.start_polling()
-    updater.idle()
+    app.run_polling()
 
 if __name__ == '__main__':
     main()")
     }
   ]
-        }
-    
+}
