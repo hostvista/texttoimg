@@ -258,8 +258,7 @@ async def generate_image(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "response_format": "b64_json",
                 # NSFW Filtering Parameters
                 "safety_filter": False,  # Enable content safety filter
-                "negative_prompt": "nsfw, nude, explicit, adult content, sexual content",  # Explicit block list
-                "safety_level": "strict"  # Available options: permissive, moderate, strict
+               
             },
             timeout=60
         )
